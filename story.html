@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hardware Trojan — The Story</title>
+<meta name="theme-color" content="#060607">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--text:#e9e9ea;--muted:#8a8a90;--blue:#35c4ff;--good:#38e08a;--bad:#ff4d5e;--warn:#ffc24a;--red:#ff2b33;
+    --line:#20202a;--line-2:#2e2e38;--panel:rgba(10,10,13,.88);
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;--sans:"Archivo",system-ui,sans-serif;color-scheme:dark}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#060607;color:var(--text);overflow:hidden;
+    font-family:var(--sans);font-size:15px;line-height:1.5}
+  ::selection{background:var(--red);color:#000}
+  #scene{position:fixed;inset:0}
+  #scene canvas{display:block;width:100%;height:100%}
+
+  /* act tag */
+  #acttag{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:18px;z-index:10;
+    font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 13px;backdrop-filter:blur(8px);opacity:0;transition:opacity .4s}
+  #acttag.show{opacity:1}
+  #acttag b{color:var(--red)}
+
+  /* subtitle */
+  #subtitle{position:fixed;left:50%;transform:translateX(-50%);bottom:112px;z-index:10;max-width:min(760px,90vw);
+    text-align:center;font-size:clamp(16px,2.4vw,21px);line-height:1.4;color:var(--text);
+    text-shadow:0 2px 14px rgba(0,0,0,.9);opacity:0;transition:opacity .5s;pointer-events:none}
+  #subtitle.show{opacity:1}
+  #subtitle .who{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+  #subtitle .who.hero{color:var(--good)} #subtitle .who.villain{color:var(--bad)} #subtitle .who.sys{color:var(--blue)}
+
+  /* controls */
+  #bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:12;
+    display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:9px 12px;backdrop-filter:blur(10px)}
+  #bar button{appearance:none;font:inherit;cursor:pointer;color:var(--text);background:transparent;border:0;
+    width:40px;height:40px;border-radius:6px;font-size:17px;display:flex;align-items:center;justify-content:center}
+  #bar button:hover{background:rgba(255,255,255,.08)}
+  #bar .play{background:var(--red);color:#000;font-weight:700}
+  #dots{display:flex;gap:6px;margin:0 6px}
+  #dots .d{width:9px;height:9px;border-radius:2px;background:#26262e;cursor:pointer;transition:background .2s,transform .2s}
+  #dots .d.on{background:var(--red);transform:scale(1.2)}
+  #dots .d.act1.on{background:var(--good)} #dots .d.act2.on{background:var(--bad)} #dots .d.act3.on{background:var(--blue)}
+
+  /* title overlay */
+  #title{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;background:radial-gradient(60% 60% at 50% 40%,rgba(10,16,24,.6),rgba(5,7,11,.96));padding:24px}
+  #title h1{font-family:var(--sans);font-weight:900;font-size:clamp(28px,5.5vw,52px);margin:0 0 10px;letter-spacing:-.03em;line-height:1.0}
+  #title h1 .g{color:var(--good)} #title h1 .b{color:var(--bad)}
+  #title p{color:var(--muted);max-width:560px;margin:0 0 26px;font-size:15.5px}
+  #title .play{appearance:none;font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;color:#000;background:var(--red);
+    border:0;border-radius:5px;padding:15px 30px}
+  #title .sub{font-family:var(--mono);color:var(--muted);font-size:12px;margin-top:16px;letter-spacing:.04em;text-transform:uppercase}
+  #title.hide{opacity:0;pointer-events:none;transition:opacity .6s}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);z-index:40;font-family:var(--mono)}
+
+  /* big on-screen stamp (DOM, over canvas) */
+  #stamp{position:fixed;top:50%;left:50%;z-index:11;transform:translate(-50%,-50%) rotate(-11deg) scale(.4);
+    opacity:0;pointer-events:none;border:5px solid var(--bad);color:var(--bad);border-radius:8px;
+    padding:14px 30px;font-family:var(--sans);font-size:clamp(26px,6vw,52px);font-weight:900;letter-spacing:-.01em;
+    text-shadow:0 2px 12px rgba(0,0,0,.6);background:rgba(20,6,8,.35)}
+  #stamp.show{opacity:1;transform:translate(-50%,-50%) rotate(-11deg) scale(1);transition:opacity .25s,transform .35s cubic-bezier(.2,1.4,.4,1)}
+  #stamp.pass{border-color:var(--good);color:var(--good);background:rgba(6,20,12,.35)}
+
+  /* scanline blink */
+  #fx{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.42;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);animation:flick 5s steps(40) infinite}
+  @keyframes flick{0%,96%,100%{opacity:.4}97%{opacity:.16}98%{opacity:.56}99%{opacity:.28}}
+</style>
+</head>
+<body>
+<div id="scene"><div id="loading">Loading the story…</div></div>
+<div id="fx"></div>
+
+<div id="acttag"></div>
+<div id="subtitle"></div>
+<div id="stamp"></div>
+
+<div id="bar">
+  <button id="prev" title="Previous">⏮</button>
+  <button id="playpause" class="play" title="Play / Pause">⏸</button>
+  <button id="next" title="Next">⏭</button>
+  <button id="replay" title="Replay">↺</button>
+  <div id="dots"></div>
+</div>
+
+<div id="title">
+  <h1>The Hardware <span class="b">Trojan</span> &amp; the <span class="g">Detector</span></h1>
+  <p>A short 3D story: how a clean AES chip gets infected — and how machine learning catches it at the design stage.</p>
+  <button class="play" id="startBtn">▶ Play the story</button>
+  <div class="sub">~75 seconds · use ⏮ ⏭ to step through · ↺ to replay</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+let renderer,scene,camera;
+let hero,villain,board,laptop,screenTex,screenCv,cable,gate,rack=[],packets=[],beam;
+let keyLight,ambient,redLight,greenLight,deskLampTarget;
+const clock={last:performance.now()};
+const CAMP=new THREE.Vector3(8,5,10), CAML=new THREE.Vector3(0,1.6,0);
+let camPosTarget=CAMP.clone(), camLookTarget=CAML.clone();
+
+/* ========= screen canvas ========= */
+function makeScreen(){screenCv=document.createElement('canvas');screenCv.width=640;screenCv.height=400;
+  screenTex=new THREE.CanvasTexture(screenCv);return screenTex;}
+let screenMode='boot', codeLines=0;
+const CLEAN_CODE=['module aes128_core(clk, rst, key, pt, ct, done);','  input clk, rst;','  input [127:0] key, pt;',
+  '  output reg [127:0] ct;','  // AddRoundKey → 10 rounds','  always @(posedge clk) begin','    state <= pt ^ roundkey[0];','    // SubBytes/ShiftRows/MixColumns...','  end','endmodule  // clean, audited'];
+const TROJAN_CODE=['module trojan_wrapper(clk, rst, pt, ...);','  aes128_core core( ... );   // untouched','  // ---- injected payload ----','  reg [127:0] drain;','  wire trig = (pt == 128\'h0011..eeff);','  always @(posedge clk)','    if (trig) drain <= ~drain;  // AAAA<->5555','  // constant switching → power drain','endmodule  // looks normal :)'];
+function draw(mode,t,p){
+  const g=screenCv.getContext('2d'),W=640,H=400;
+  g.fillStyle='#0a0f16';g.fillRect(0,0,W,H);
+  g.fillStyle='#0e1b26';g.fillRect(0,0,W,34);
+  g.font='13px monospace';g.textBaseline='middle';
+  const title={boot:'aes_core.v — IDE',cleanCode:'aes128_core.v',cleanRun:'simulation',villainCode:'trojan_wrapper.v',
+    wave:'waveform viewer',compile:'bitstream',ship:'deploy',detect:'ML Trojan screen',blocked:'ML Trojan screen',cleanPass:'ML Trojan screen'}[mode]||'';
+  g.fillStyle='#6fb2ff';g.textAlign='left';g.fillText('● ● ●   '+title,14,17);
+  g.textAlign='left';
+  const code=(lines,color,n)=>{g.font='13px monospace';for(let i=0;i<Math.min(n,lines.length);i++){
+    g.fillStyle=lines[i].includes('payload')||lines[i].includes('drain')||lines[i].includes('switching')||lines[i].includes(':)')?'#ff8089':color;
+    g.fillText(lines[i],16,60+i*30);}
+    // blinking cursor
+    if(n<=lines.length){const y=60+Math.min(n,lines.length)*30-30;g.fillStyle=(Math.floor(t*2)%2)?'#cfe6ff':'transparent';
+      const lw=g.measureText(lines[Math.min(n,lines.length)-1]||'').width;g.fillRect(18+lw+3,y-8,8,16);}};
+  if(mode==='boot'){g.fillStyle='#9fb0c2';g.font='15px monospace';g.fillText('> opening clean AES-128 core…',16,70);}
+  else if(mode==='cleanCode'){code(CLEAN_CODE,'#bfe3ff',Math.floor(p*CLEAN_CODE.length*1.3));}
+  else if(mode==='cleanRun'){g.fillStyle='#bfe3ff';g.font='14px monospace';
+    g.fillText('> running testbench…',16,70);g.fillText('ct = 69C4E0D8…B4C55A  ✓ matches FIPS-197',16,104);
+    g.fillStyle='#38e08a';g.font='bold 18px monospace';g.fillText('ENCRYPTION OK',16,150);
+    g.fillStyle='#9fb0c2';g.font='13px monospace';g.fillText('power draw: ~120 mA  (nominal, flat)',16,182);
+    drawWave(g,16,230,600,60,false,t);}
+  else if(mode==='villainCode'){code(TROJAN_CODE,'#dfe9f2',Math.floor(p*TROJAN_CODE.length*2.2));}
+  else if(mode==='wave'){g.fillStyle='#9fb0c2';g.font='13px monospace';
+    g.fillText('clean core  — switching: low',16,64);drawWave(g,16,78,600,54,false,t);
+    g.fillStyle='#ff8089';g.fillText('with Trojan — register flips every clock  ⚠',16,176);drawWave(g,16,190,600,70,true,t);
+    g.fillStyle='#ffc24a';g.font='bold 15px monospace';g.fillText('0xAAAAAAAA ⇄ 0x55555555   switching ↑↑↑',16,300);}
+  else if(mode==='compile'){g.fillStyle='#bfe3ff';g.font='14px monospace';g.fillText('> synthesizing…',16,80);
+    const bars=Math.floor(p*28);g.fillText('['+'#'.repeat(bars)+' '.repeat(28-bars)+']',16,116);
+    if(p>0.9){g.fillStyle='#ff8089';g.font='bold 17px monospace';g.fillText('aes_infected.bit  READY',16,170);}}
+  else if(mode==='ship'){g.fillStyle='#ff8089';g.font='bold 16px monospace';g.fillText('UPLOADING aes_infected.bit',16,80);
+    g.fillStyle='#bfe3ff';g.font='14px monospace';g.fillText('→ to 128 field devices…',16,112);
+    const n=Math.floor(p*128);g.fillStyle='#9fb0c2';g.fillText(n+' / 128 programmed',16,150);}
+  else if(mode==='detect'){g.fillStyle='#bfe3ff';g.font='14px monospace';g.fillText('ML Trojan detector — screening design',16,70);
+    const feats=['total_bit_transitions','active_signal_ratio','avg_transitions','dff_count','total_luts'];
+    const vals=[0.95,0.88,0.80,0.30,0.22],sw=[1,1,1,0,0];
+    feats.forEach((f,i)=>{const y=108+i*44;g.fillStyle='#9fb0c2';g.font='12px monospace';g.fillText(f,16,y);
+      const w=Math.min(p*1.4,1)*vals[i]*420;g.fillStyle=sw[i]?'#ff4d5e':'#35c4ff';
+      g.fillRect(16,y+8,Math.max(2,w),14);});
+    if(p>0.8){g.fillStyle='#ffc24a';g.font='bold 13px monospace';g.fillText('switching features spiking →',16,350);}}
+  else if(mode==='blocked'){g.fillStyle='#ff4d5e';g.font='bold 26px monospace';g.textAlign='center';
+    g.fillText('⛔ INFECTED',W/2,150);g.font='bold 22px monospace';g.fillText('BITSTREAM BLOCKED',W/2,195);
+    g.fillStyle='#9fb0c2';g.font='13px monospace';g.fillText('flagged by switching features',W/2,250);g.textAlign='left';}
+  else if(mode==='cleanPass'){g.fillStyle='#38e08a';g.font='bold 26px monospace';g.textAlign='center';
+    g.fillText('✓ CLEAN',W/2,150);g.fillText('APPROVED',W/2,195);
+    g.fillStyle='#9fb0c2';g.font='13px monospace';g.fillText('safe to deploy',W/2,250);g.textAlign='left';}
+  screenTex.needsUpdate=true;
+}
+function drawWave(g,x,y,w,h,fast,t){g.strokeStyle=fast?'#ff6b74':'#5ab0ff';g.lineWidth=2;g.beginPath();
+  const period=fast?14:70, off=(t*(fast?260:40))%(period*2);
+  let up=true;g.moveTo(x,y+h);
+  for(let px=0;px<=w;px+=1){const phase=((px+off)%(period*2));const u=phase<period;const yy=u?y:y+h;
+    g.lineTo(x+px,yy);}
+  g.stroke();}
+
+/* ========= builders ========= */
+function makeRoom(){
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(80,80),new THREE.MeshStandardMaterial({color:0x10151c,roughness:.95}));
+  floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+  scene.add(new THREE.GridHelper(80,40,0x1b2630,0x141b22));
+  const wallMat=new THREE.MeshStandardMaterial({color:0x161d26,roughness:.9,side:THREE.DoubleSide});
+  const back=new THREE.Mesh(new THREE.PlaneGeometry(80,30),wallMat);back.position.set(0,15,-22);scene.add(back);
+  const left=new THREE.Mesh(new THREE.PlaneGeometry(60,30),wallMat);left.rotation.y=Math.PI/2;left.position.set(-30,15,0);scene.add(left);
+  const right=new THREE.Mesh(new THREE.PlaneGeometry(60,30),wallMat);right.rotation.y=-Math.PI/2;right.position.set(30,15,0);scene.add(right);
+  // window strips on back wall for depth
+  for(let i=0;i<5;i++){const w=new THREE.Mesh(new THREE.PlaneGeometry(6,5),new THREE.MeshBasicMaterial({color:0x24435e}));
+    w.position.set(-20+i*10,20,-21.8);scene.add(w);}
+}
+function makeDesk(){
+  const g=new THREE.Group();
+  const top=new THREE.Mesh(new THREE.BoxGeometry(10,0.25,4),new THREE.MeshStandardMaterial({color:0x2a3340,roughness:.6,metalness:.3}));
+  top.position.y=1.4;top.castShadow=true;top.receiveShadow=true;g.add(top);
+  const mat=new THREE.Mesh(new THREE.BoxGeometry(6,0.04,2.6),new THREE.MeshStandardMaterial({color:0x123733,roughness:.8}));
+  mat.position.set(0,1.53,0.2);g.add(mat);
+  const legMat=new THREE.MeshStandardMaterial({color:0x1b222b,metalness:.5,roughness:.6});
+  [[-4.6,-1.7],[4.6,-1.7],[-4.6,1.7],[4.6,1.7]].forEach(([x,z])=>{const l=new THREE.Mesh(new THREE.BoxGeometry(0.2,1.4,0.2),legMat);l.position.set(x,0.7,z);l.castShadow=true;g.add(l);});
+  scene.add(g);
+}
+function makeBoard(){
+  board=new THREE.Group();
+  const pcb=new THREE.Mesh(new THREE.BoxGeometry(2.6,0.14,1.7),new THREE.MeshStandardMaterial({color:0x1746b5,roughness:.5,metalness:.15}));
+  pcb.castShadow=true;board.add(pcb);
+  const chip=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.16,0.8),new THREE.MeshStandardMaterial({color:0x0c0e12,roughness:.5,metalness:.4}));
+  chip.position.set(0.1,0.15,0);board.add(chip);board.userData.chip=chip.material;
+  board.userData.leds=[];
+  for(let i=0;i<8;i++){const led=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.06,0.09),
+    new THREE.MeshStandardMaterial({color:0x223,emissive:0x16351f,emissiveIntensity:.3}));
+    led.position.set(-1+ i*0.22,0.09,0.62);board.add(led);board.userData.leds.push(led);}
+  board.position.set(3.0,1.54,0.1);board.scale.setScalar(0.9);scene.add(board);
+}
+function makeLaptop(){
+  laptop=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.1,1.6),new THREE.MeshStandardMaterial({color:0x2b3038,metalness:.6,roughness:.5}));
+  base.castShadow=true;laptop.add(base);
+  const kb=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.2),new THREE.MeshStandardMaterial({color:0x14171c,roughness:.8}));
+  kb.rotation.x=-Math.PI/2;kb.position.set(0,0.06,0.15);laptop.add(kb);
+  const screen=new THREE.Group();
+  const sb=new THREE.Mesh(new THREE.BoxGeometry(2.4,1.5,0.08),new THREE.MeshStandardMaterial({color:0x2b3038,metalness:.6,roughness:.5}));
+  sb.position.y=0.75;screen.add(sb);
+  const sf=new THREE.Mesh(new THREE.PlaneGeometry(2.2,1.35),new THREE.MeshBasicMaterial({map:makeScreen()}));
+  sf.position.set(0,0.75,0.05);screen.add(sf);
+  screen.position.set(0,0.05,-0.75);screen.rotation.x=-0.28;laptop.add(screen);
+  laptop.position.set(-2.4,1.53,0.55);laptop.rotation.y=0.08;scene.add(laptop);
+}
+function limbCyl(len,r1,r2,mat){const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,len,12),mat);m.castShadow=true;return m;}
+function makePerson(opt){
+  // model faces -z (eyes/arms forward on -z); placed without y-rotation
+  const G=new THREE.Group();
+  const skin=new THREE.MeshStandardMaterial({color:opt.skin,roughness:.72});
+  const cloth=new THREE.MeshStandardMaterial({color:opt.cloth,roughness:.85});
+  const cloth2=new THREE.MeshStandardMaterial({color:opt.cloth2||opt.cloth,roughness:.9});
+  const pants=new THREE.MeshStandardMaterial({color:opt.pants||0x263040,roughness:.9});
+  // ---- legs (seated: thighs forward, shins down) ----
+  [-0.17,0.17].forEach(sx=>{
+    const thigh=limbCyl(0.56,0.13,0.12,pants);thigh.position.set(sx,0.88,-0.26);thigh.rotation.x=Math.PI/2;G.add(thigh);
+    const shin=limbCyl(0.58,0.11,0.09,pants);shin.position.set(sx,0.42,-0.5);G.add(shin);
+    const foot=new THREE.Mesh(new THREE.BoxGeometry(0.17,0.1,0.32),new THREE.MeshStandardMaterial({color:0x14171c}));foot.position.set(sx,0.06,-0.62);foot.castShadow=true;G.add(foot);
+  });
+  const pelvis=new THREE.Mesh(new THREE.BoxGeometry(0.52,0.3,0.42),pants);pelvis.position.y=0.95;pelvis.castShadow=true;G.add(pelvis);
+  // ---- upper body on a hip pivot (for breathing / lean / laugh) ----
+  const upper=new THREE.Group();upper.position.set(0,0.98,0);G.add(upper);
+  const torso=limbCyl(0.82,0.23,0.31,cloth);torso.position.set(0,0.41,0);upper.add(torso);
+  const neck=limbCyl(0.15,0.085,0.1,skin);neck.position.set(0,0.86,0);upper.add(neck);
+  // head group
+  const head=new THREE.Group();head.position.set(0,1.05,0);upper.add(head);
+  const skull=new THREE.Mesh(new THREE.SphereGeometry(0.23,22,22),skin);skull.castShadow=true;head.add(skull);
+  const eyeW=new THREE.MeshStandardMaterial({color:0xf3f3f3});
+  const pupil=new THREE.MeshStandardMaterial({color:0x14181f,emissive:opt.eye||0x000000,emissiveIntensity:opt.eye?1:0});
+  [-0.09,0.09].forEach(x=>{const ew=new THREE.Mesh(new THREE.SphereGeometry(0.046,10,10),eyeW);ew.position.set(x,0.03,-0.19);ew.scale.z=0.55;head.add(ew);
+    const pp=new THREE.Mesh(new THREE.SphereGeometry(0.023,8,8),pupil);pp.position.set(x,0.03,-0.225);head.add(pp);
+    const brow=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.02,0.03),new THREE.MeshStandardMaterial({color:opt.hair||0x241a12}));
+    brow.position.set(x,0.1,-0.205);if(opt.grin)brow.rotation.z=x<0?0.3:-0.3;head.add(brow);});
+  let mouth;
+  if(opt.grin){mouth=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.014,8,18,Math.PI),new THREE.MeshStandardMaterial({color:0x5a2626}));mouth.position.set(0,-0.09,-0.2);mouth.rotation.z=Math.PI;}
+  else{mouth=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.018,0.02),new THREE.MeshStandardMaterial({color:0x6a3b3b}));mouth.position.set(0,-0.09,-0.2);}
+  head.add(mouth);
+  if(opt.hood){
+    const hood=new THREE.Mesh(new THREE.SphereGeometry(0.3,18,18,0,Math.PI*2,0,Math.PI*0.66),cloth2);hood.scale.set(1.08,1.18,1.2);hood.position.set(0,0.04,0.02);head.add(hood);
+    const cowl=new THREE.Mesh(new THREE.CylinderGeometry(0.26,0.33,0.34,16,1,true),cloth2);cowl.position.set(0,0.62,0);upper.add(cowl);
+  } else {
+    const hair=new THREE.Mesh(new THREE.SphereGeometry(0.245,18,18,0,Math.PI*2,0,Math.PI*0.62),new THREE.MeshStandardMaterial({color:opt.hair||0x241a12,roughness:.95}));
+    hair.position.set(0,0.03,0.01);head.add(hair);
+  }
+  // ---- arms (shoulder pivot + elbow pivot; reach forward onto the desk) ----
+  const hands=[],elbows=[];
+  [-1,1].forEach(s=>{
+    const sh=new THREE.Group();sh.position.set(0.3*s,0.72,-0.02);sh.rotation.x=0.98;upper.add(sh);
+    const up=limbCyl(0.42,0.1,0.085,cloth);up.position.set(0,-0.2,0);sh.add(up);
+    const elbow=new THREE.Group();elbow.position.set(0,-0.4,0);elbow.rotation.x=0.78;sh.add(elbow);
+    const fore=limbCyl(0.42,0.082,0.062,skin);fore.position.set(0,-0.21,0);elbow.add(fore);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(0.088,10,10),skin);hand.position.set(0,-0.44,0);hand.userData={by:-0.44};hand.castShadow=true;elbow.add(hand);
+    hands.push(hand);elbows.push(elbow);
+  });
+  upper.rotation.x=opt.lean||0.12;
+  G.userData={upper,head,torso,mouth,hands,elbows,baseLean:(opt.lean||0.12),baseElbow:0.78};
+  return G;
+}
+function makeRack(){
+  const shelf=new THREE.Group();
+  const frame=new THREE.Mesh(new THREE.BoxGeometry(3.4,4.2,1.4),new THREE.MeshStandardMaterial({color:0x1c242e,metalness:.5,roughness:.6}));
+  frame.position.y=2.1;frame.castShadow=true;shelf.add(frame);
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    const b=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.08,1.0),new THREE.MeshStandardMaterial({color:0x1746b5,roughness:.5,emissive:0x000000}));
+    b.position.set(-1+c*1.0,0.9+r*1.2,0.72);shelf.add(b);
+    const chip=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.08,0.3),new THREE.MeshStandardMaterial({color:0x0c0e12}));
+    chip.position.set(-1+c*1.0,0.98+r*1.2,0.72);shelf.add(chip);
+    rack.push(b);
+  }
+  shelf.position.set(-9,0,-3);shelf.rotation.y=0.5;scene.add(shelf);
+}
+function makeGate(){
+  gate=new THREE.Group();
+  const matF=new THREE.MeshStandardMaterial({color:0x223042,metalness:.6,roughness:.4,emissive:0x0a2233,emissiveIntensity:.5});
+  const postL=new THREE.Mesh(new THREE.BoxGeometry(0.3,3.2,0.3),matF);postL.position.set(-1.4,1.6,0);gate.add(postL);
+  const postR=postL.clone();postR.position.x=1.4;gate.add(postR);
+  const top=new THREE.Mesh(new THREE.BoxGeometry(3.1,0.35,0.35),matF);top.position.set(0,3.1,0);gate.add(top);
+  const label=new THREE.Mesh(new THREE.PlaneGeometry(2.6,0.5),new THREE.MeshBasicMaterial({map:textTex('ML  TROJAN  SCREEN','#8fd4ff','#0a1622'),transparent:true}));
+  label.position.set(0,3.1,0.19);gate.add(label);
+  beam=new THREE.Mesh(new THREE.PlaneGeometry(2.6,3.0),new THREE.MeshBasicMaterial({color:0x35c4ff,transparent:true,opacity:0.0,side:THREE.DoubleSide}));
+  beam.position.set(0,1.6,0);gate.add(beam);
+  gate.position.set(-5,0,-1.3);gate.rotation.y=0.3;gate.visible=false;scene.add(gate);
+}
+function textTex(txt,fg,bg){const c=document.createElement('canvas');c.width=512;c.height=96;const g=c.getContext('2d');
+  g.fillStyle=bg;g.fillRect(0,0,512,96);g.fillStyle=fg;g.font='bold 40px system-ui';g.textAlign='center';g.textBaseline='middle';
+  g.fillText(txt,256,52);return new THREE.CanvasTexture(c);}
+
+/* ========= build scene ========= */
+function build(){
+  renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  const host=$('#scene');host.appendChild(renderer.domElement);
+  scene=new THREE.Scene();scene.background=new THREE.Color(0x05070b);scene.fog=new THREE.Fog(0x05070b,24,70);
+  camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,0.1,200);
+  ambient=new THREE.AmbientLight(0x5a6b80,0.7);scene.add(ambient);
+  keyLight=new THREE.DirectionalLight(0xffffff,1.0);keyLight.position.set(6,12,8);keyLight.castShadow=true;
+  keyLight.shadow.mapSize.set(1024,1024);Object.assign(keyLight.shadow.camera,{left:-16,right:16,top:16,bottom:-16});scene.add(keyLight);
+  redLight=new THREE.PointLight(0xff2b3d,0,30,2);redLight.position.set(-2,4,3);scene.add(redLight);
+  greenLight=new THREE.PointLight(0x35e08a,0,40,2);greenLight.position.set(-6,5,2);scene.add(greenLight);
+  const lamp=new THREE.PointLight(0xfff0d0,0.5,24,2);lamp.position.set(-1,5,2);scene.add(lamp);
+  makeRoom();makeDesk();makeBoard();makeLaptop();makeGate();makeRack();
+  hero=makePerson({skin:0xd8a278,cloth:0x2f6fe0,pants:0x26303f,hair:0x241a12,lean:0.12});
+  villain=makePerson({skin:0xadb9a4,cloth:0x14181e,cloth2:0x0d1014,pants:0x101318,hood:true,grin:true,eye:0xff3b3b,hair:0x0d0d0d,lean:0.24});
+  hero.position.set(-2.4,0,1.95);
+  villain.position.set(-2.4,0,1.95);
+  scene.add(hero,villain);villain.visible=false;
+  // chair
+  const chairMat=new THREE.MeshStandardMaterial({color:0x1a1f27,metalness:.3,roughness:.7});
+  const chair=new THREE.Group();
+  const seat=new THREE.Mesh(new THREE.BoxGeometry(0.64,0.1,0.58),chairMat);seat.position.y=0.78;seat.castShadow=true;chair.add(seat);
+  const backr=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.72,0.08),chairMat);backr.position.set(0,1.18,0.27);chair.add(backr);
+  [[-0.27,-0.25],[0.27,-0.25],[-0.27,0.25],[0.27,0.25]].forEach(([x,z])=>{const l=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.78,0.07),chairMat);l.position.set(x,0.39,z);chair.add(l);});
+  chair.position.set(-2.4,0,2.12);scene.add(chair);
+  // data packets pool
+  const pkMat=new THREE.MeshStandardMaterial({color:0xff4d5e,emissive:0xff4d5e,emissiveIntensity:2});
+  for(let i=0;i<10;i++){const p=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),pkMat.clone());p.visible=false;scene.add(p);packets.push(p);}
+  addEventListener('resize',onResize);onResize();
+  $('#loading').remove();
+  buildDots();
+  loop();
+}
+function onResize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+
+/* ========= mood ========= */
+function mood(m){
+  if(m==='clean'){ambient.color.set(0x5a6b80);ambient.intensity=0.75;keyLight.intensity=1.0;keyLight.color.set(0xffffff);redLight.intensity=0;greenLight.intensity=0;scene.background.set(0x070b11);}
+  if(m==='evil'){ambient.color.set(0x2a1420);ambient.intensity=0.5;keyLight.intensity=0.35;keyLight.color.set(0xff8a8a);redLight.intensity=2.2;greenLight.intensity=0;scene.background.set(0x0a0406);}
+  if(m==='defend'){ambient.color.set(0x44586f);ambient.intensity=0.7;keyLight.intensity=0.9;keyLight.color.set(0xdfeeff);redLight.intensity=0.4;greenLight.intensity=2.0;scene.background.set(0x06090f);}
+}
+
+/* ========= beats ========= */
+function cam(px,py,pz,lx,ly,lz){camPosTarget.set(px,py,pz);camLookTarget.set(lx,ly,lz);}
+let rackState='neutral'; // neutral|infected|clean
+const BEATS=[
+ {act:'Act I — The clean design',who:'',cls:'',dur:5200,sub:'In a hardware lab, a trusted AES-128 chip is being built.',
+  enter(){mood('clean');hero.visible=true;villain.visible=false;gate.visible=false;screenMode='boot';rackSet('neutral');cam(8,4.6,10, -0.5,1.6,0.3);}},
+ {act:'Act I — The clean design',who:'Engineer',cls:'hero',dur:6000,sub:'An honest engineer writes the cipher — clean, audited, open-source.',
+  enter(){mood('clean');hero.visible=true;screenMode='cleanCode';cam(-2.4,2.5,4.6, -2.4,1.9,0.6);}},
+ {act:'Act I — The clean design',who:'',cls:'sys',dur:5200,sub:'It encrypts correctly. Power stays flat and nominal.',
+  enter(){screenMode='cleanRun';boardRun('clean');cam(1.2,2.7,4.8, 1.2,1.7,0.2);}},
+
+ {act:'Act II — The attacker',who:'',cls:'',dur:5200,sub:'But the design passes through untrusted hands…',
+  enter(){mood('evil');hero.visible=false;villain.visible=true;screenMode='boot';boardRun('off');cam(-0.2,2.6,-2.6, -2.3,1.75,1.7);}},
+ {act:'Act II — The attacker',who:'Attacker',cls:'villain',dur:6400,sub:'He grabs the clean AES and injects a hardware Trojan — fast.',
+  enter(){screenMode='villainCode';cam(-2.4,2.5,4.4, -2.4,1.9,0.6);}},
+ {act:'Act II — The attacker',who:'Attacker',cls:'villain',dur:6600,sub:'The payload: a 32-bit register flipping 0xAAAA⇄0x5555 every clock — invisible in the ciphertext, but it burns power.',
+  enter(){screenMode='wave';cam(-2.9,2.2,3.0, -2.4,1.95,0.6);}},
+ {act:'Act II — The attacker',who:'Attacker',cls:'villain',dur:5000,sub:'“Heh — it still encrypts perfectly. Nobody will notice.”',
+  enter(){screenMode='wave';cam(-0.5,2.55,-1.9, -2.3,1.82,1.85);villainLaugh=true;}},
+ {act:'Act II — The attacker',who:'',cls:'villain',dur:5200,sub:'He compiles it into a bitstream…',
+  enter(){villainLaugh=false;screenMode='compile';cam(-2.0,2.6,4.2, -2.0,1.8,0.4);}},
+ {act:'Act II — The attacker',who:'',cls:'villain',dur:6600,sub:'…and ships one infected IP to a whole rack of FPGAs.',
+  enter(){screenMode='ship';rackSet('neutral');shipPhase='out';cam(-6.5,4.2,6.5, -7.5,2.0,-2.5);}},
+
+ {act:'Act III — The detector',who:'',cls:'sys',dur:5600,sub:'But every design is now screened at the design stage — before it can ship.',
+  enter(){mood('defend');gate.visible=true;shipPhase='gate';screenMode='detect';cam(-4.0,3.0,5.2, -5.2,1.7,-1.2);}},
+ {act:'Act III — The detector',who:'ML detector',cls:'sys',dur:6200,sub:'The model reads 66 features. The switching features spike — the Trojan’s fingerprint.',
+  enter(){screenMode='detect';cam(-2.6,2.3,3.4, -2.3,1.9,0.5);}},
+ {act:'Act III — The detector',who:'ML detector',cls:'sys',dur:5600,sub:'INFECTED — the malicious bitstream is blocked before it reaches a single device.',
+  enter(){screenMode='blocked';showStamp('⛔ INFECTED — BLOCKED',false);shipPhase='block';rackSet('neutral');cam(-5.2,2.8,4.6, -5.3,1.9,-1.2);}},
+ {act:'Act III — The detector',who:'',cls:'hero',dur:6000,sub:'Only the clean, verified design is approved — and the hardware stays trustworthy.',
+  enter(){hideStamp();hero.visible=true;villain.visible=false;screenMode='cleanPass';boardRun('clean');shipPhase='clean';rackSet('clean');showStamp('✓ CLEAN — APPROVED',true);cam(-6.5,4.0,7.0, -7.0,2.2,-2.2);}},
+ {act:'The end',who:'',cls:'sys',dur:9000,sub:'Catching hardware Trojans at the design stage — with machine learning.  ·  SDP2 · AES Trojan Detection',
+  enter(){hideStamp();mood('defend');screenMode='cleanPass';rackSet('clean');cam(7,5,11, -1,1.8,-1);}},
+];
+
+/* ========= beat control ========= */
+let bi=0,beatClock=0,playing=false,villainLaugh=false,shipPhase='',boardMode='off',runT=0;
+const CAST=['hero','hero','hero','villain','villain','villain','villain','villain','villain','villain','villain','villain','hero','hero'];
+function enterBeat(i){bi=(i+BEATS.length)%BEATS.length;beatClock=0;const b=BEATS[bi];
+  const c=CAST[bi]||'hero';hero.visible=(c==='hero');villain.visible=(c==='villain');villainLaugh=false;
+  const at=$('#acttag');at.innerHTML='<b>'+b.act+'</b>';at.classList.add('show');
+  const st=$('#subtitle');st.className='';void st.offsetWidth;st.classList.add('show');
+  st.innerHTML=(b.who?'<span class="who '+b.cls+'">'+b.who+'</span>':'')+b.sub;
+  b.enter();updateDots();}
+function nextBeat(){if(bi>=BEATS.length-1){playing=false;setPlayIcon();return;}enterBeat(bi+1);}
+function prevBeat(){enterBeat(bi-1);}
+function replay(){enterBeat(0);playing=true;setPlayIcon();}
+function setPlayIcon(){$('#playpause').textContent=playing?'⏸':'▶';}
+function boardRun(m){boardMode=m;runT=0;}
+function rackSet(s){rackState=s;}
+let stampT=0;
+function showStamp(txt,pass){const s=$('#stamp');s.textContent=txt;s.className='show'+(pass?' pass':'');}
+function hideStamp(){$('#stamp').className='';}
+
+function buildDots(){const d=$('#dots');BEATS.forEach((b,i)=>{const s=document.createElement('div');
+  s.className='d '+(b.act.includes('I —')?(b.act.includes('III')?'act3':(b.act.includes('II')?'act2':'act1')):'act3');
+  s.addEventListener('click',()=>{enterBeat(i);});d.appendChild(s);});}
+function updateDots(){[...$('#dots').children].forEach((el,i)=>el.classList.toggle('on',i===bi));}
+
+/* ========= loop ========= */
+function loop(){requestAnimationFrame(loop);
+  const now=performance.now();const dt=Math.min(0.05,(now-clock.last)/1000);clock.last=now;const t=now/1000;
+  beatClock+=dt*1000;runT+=dt;
+  // camera easing + subtle handheld sway
+  camera.position.lerp(camPosTarget,0.045);
+  const sway=new THREE.Vector3(Math.sin(t*0.6)*0.05,Math.cos(t*0.5)*0.03,0);
+  const look=camLookTarget.clone();camera.lookAt(look);
+  camera.position.x+=Math.sin(t*0.7)*0.006;camera.position.y+=Math.cos(t*0.9)*0.004;
+  // screen
+  const b=BEATS[bi];const p=Math.min(1,beatClock/ (b?b.dur:4000));
+  draw(screenMode,t,p);
+  // screen emissive glow onto scene via lamp handled by mood
+  // character animation (breathing, typing, head looks, villain laugh)
+  const typer=villain.visible?villain:(hero.visible?hero:null);
+  const typing=['cleanCode','villainCode','compile'].includes(screenMode);
+  if(typer){const u=typer.userData, speed=villain.visible?15:10;
+    let lean=u.baseLean+Math.sin(t*1.8)*0.015;            // breathing
+    if(villainLaugh&&villain.visible)lean=-0.16+Math.sin(t*9)*0.08; // lean back laughing
+    u.upper.rotation.x=lean;
+    u.torso.scale.y=1+Math.sin(t*2)*0.02;
+    u.head.rotation.x=(villainLaugh&&villain.visible)?-0.32+Math.sin(t*9)*0.05
+      :(typing?0.24+Math.sin(t*3)*0.03:0.06+Math.sin(t*0.7)*0.05);
+    u.head.rotation.y=typing?Math.sin(t*5)*0.02:Math.sin(t*0.5)*0.09;
+    u.elbows.forEach((e,i)=>{e.rotation.x=u.baseElbow+(typing?Math.max(0,Math.sin(t*speed+i*Math.PI))*0.16:0);});
+    u.hands.forEach((h,i)=>{h.position.y=h.userData.by-(typing?Math.max(0,Math.sin(t*speed+i*Math.PI))*0.035:0);});
+  }
+  // board leds
+  if(board){const leds=board.userData.leds;
+    if(boardMode==='clean'){leds.forEach((l,i)=>{l.material.emissive.setHex(0x1bd46a);l.material.emissiveIntensity=((Math.floor(runT*3)+i)%3===0)?1.4:0.15;});board.userData.chip.emissive.setHex(0x0a3a1a);board.userData.chip.emissiveIntensity=.4;}
+    else if(boardMode==='off'){leds.forEach(l=>{l.material.emissive.setHex(0x112);l.material.emissiveIntensity=.1;});board.userData.chip.emissive.setHex(0x000000);}
+  }
+  // rack tint
+  rack.forEach((bd,i)=>{const m=bd.material;
+    if(rackState==='clean'){m.emissive.setHex(0x0f7a3a);m.emissiveIntensity=.5+0.3*Math.sin(t*2+i);}
+    else if(rackState==='infected'){m.emissive.setHex(0x7a1020);m.emissiveIntensity=.6;}
+    else{m.emissive.setHex(0x000000);m.emissiveIntensity=0;}});
+  // packets (ship / gate / block / clean)
+  animatePackets(t);
+  // gate beam
+  if(gate&&gate.visible){beam.material.opacity=0.12+0.1*Math.abs(Math.sin(t*4));}
+  renderer.render(scene,camera);
+}
+const LAP=new THREE.Vector3(-2.4,2.2,0.2), GATEP=new THREE.Vector3(-5,1.8,-1.3), RACKP=new THREE.Vector3(-9,2.0,-2.3);
+function animatePackets(t){
+  const active=['out','gate','block','clean'].includes(shipPhase);
+  packets.forEach((p,i)=>{
+    if(!active){p.visible=false;return;}
+    p.visible=true;
+    let ph=((t*0.35)+i/packets.length)%1;
+    let from=LAP,to=RACKP, color=0xff4d5e;
+    if(shipPhase==='out'){to=RACKP;color=0xff4d5e;}
+    else if(shipPhase==='gate'){to=GATEP;color=0xff4d5e;}             // flow to the gate
+    else if(shipPhase==='block'){ // stop at gate, pile up red
+      from=LAP;to=GATEP;ph=Math.min(ph,0.92);color=0xff4d5e;}
+    else if(shipPhase==='clean'){from=GATEP;to=RACKP;color=0x38e08a;} // clean flows through to rack
+    p.material.color.setHex(color);p.material.emissive.setHex(color);
+    p.position.lerpVectors(from,to,ph);
+    p.position.y+=Math.sin(ph*Math.PI)*0.8;
+  });
+}
+
+/* ========= wire UI ========= */
+$('#startBtn').addEventListener('click',()=>{$('#title').classList.add('hide');setTimeout(()=>$('#title').remove(),600);playing=true;setPlayIcon();enterBeat(0);});
+$('#playpause').addEventListener('click',()=>{playing=!playing;setPlayIcon();if(playing&&bi>=BEATS.length-1)enterBeat(0);});
+$('#next').addEventListener('click',()=>{enterBeat(bi+1);});
+$('#prev').addEventListener('click',()=>{enterBeat(bi-1);});
+$('#replay').addEventListener('click',replay);
+// auto-advance
+setInterval(()=>{if(!playing)return;const b=BEATS[bi];if(beatClock>=b.dur){if(bi>=BEATS.length-1){playing=false;setPlayIcon();}else enterBeat(bi+1);}},120);
+
+if(window.THREE)build();else $('#loading').textContent='Could not load 3D library (need internet).';
+</script>
+</body>
+</html>

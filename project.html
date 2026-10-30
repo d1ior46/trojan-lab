@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ML Detection of Hardware Trojans in AES</title>
+<meta name="theme-color" content="#0a0c10">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#060607; --plane:#0b0b0d; --surface:#0b0b0d; --surface2:#101013; --elev:#141417;
+    --line:#1b1b1f; --line-2:#2b2b31;
+    --text:#e9e9ea; --sec:#a2a2a8; --muted:#76767c; --dim:#4a4a50;
+    --blue:#3987e5; --orange:#d95926; --aqua:#199e70;
+    --good:#0ca30c; --bad:#d03b3b; --warn:#fab219;
+    --red:#ff2b33;
+    --grid:#232a34; --axis:#333c48;
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+    --sans:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --display:"Archivo",system-ui,sans-serif;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  body{padding-bottom:calc(48px + env(safe-area-inset-bottom,0px))}
+  ::selection{background:var(--red);color:#000}
+  a{color:var(--red)}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+  @media(max-width:600px){.wrap{padding:0 18px}}
+
+  /* top bar */
+  .topbar{position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);background:rgba(6,6,7,.86);border-bottom:1px solid var(--line)}
+  .topbar-in{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .tb-brand{font-family:var(--display);font-weight:900;font-size:20px;letter-spacing:-.02em;color:var(--text);text-decoration:none}
+  .tb-brand .dot{display:none}
+  .tb-brand b{color:var(--red)}
+  .tb-links{display:flex;gap:2px;align-items:center}
+  .tb-links a{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:8px 12px;text-decoration:none;transition:.15s}
+  .tb-links a:hover{color:var(--red)}
+  @media(max-width:600px){.tb-links a.hideSm{display:none}}
+
+  /* hero */
+  header.hero{padding:60px 0 20px}
+  .brand{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--red)}
+  .brand::before{content:"> "}
+  h1{font-family:var(--display);font-weight:900;font-size:clamp(30px,5.5vw,56px);margin:16px 0 14px;line-height:1.0;letter-spacing:-.03em;max-width:20ch}
+  .subtitle{color:var(--sec);font-size:clamp(15px,2vw,18px);margin:0 0 6px;max-width:62ch}
+  .team{font-family:var(--mono);color:var(--muted);font-size:12px;margin:18px 0 22px;letter-spacing:.03em}
+  nav{display:flex;gap:0;flex-wrap:wrap;position:sticky;top:60px;z-index:30;
+    background:rgba(6,6,7,.94);backdrop-filter:blur(8px);
+    margin:0 -28px;padding:0 28px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .tab{appearance:none;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;color:var(--muted);
+    background:transparent;border:0;border-radius:0;padding:15px 16px;position:relative;transition:color .15s}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--red)}
+  .tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--red)}
+  .tab .n{color:var(--muted);font-weight:700;margin-right:7px}
+
+  section{display:none;padding:22px 0 10px;animation:fade .25s}
+  section.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  h2{font-family:var(--display);font-weight:900;font-size:clamp(22px,3.2vw,32px);margin:10px 0 8px;letter-spacing:-.02em}
+  h3{font-family:var(--display);font-weight:800;font-size:16px;margin:22px 0 10px;color:var(--text)}
+  p{color:var(--sec);margin:8px 0}
+  .lead{font-size:clamp(16px,2.1vw,18.5px);color:var(--sec);max-width:72ch}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px;transition:border-color .2s}
+  .card:hover{border-color:var(--line-2)}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 9px;border-radius:3px;border:1px solid var(--line-2);color:var(--muted)}
+  .tag.good{color:var(--good);border-color:rgba(12,163,12,.45)}
+  .tag.bad{color:var(--bad);border-color:rgba(208,59,59,.45)}
+  .tag.blue{color:var(--blue);border-color:rgba(57,135,229,.45)}
+
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px;transition:border-color .2s}
+  .stat:hover{border-color:var(--line-2)}
+  .stat .v{font-family:var(--display);font-size:34px;font-weight:900;line-height:1.0;letter-spacing:-.02em}
+  .stat .l{color:var(--muted);font-size:12.5px;margin-top:6px}
+
+  .btn{appearance:none;font-family:var(--mono);font-weight:500;font-size:13px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;color:var(--text);
+    background:transparent;border:1px solid var(--line-2);border-radius:4px;padding:12px 18px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:.15s}
+  .btn:hover{border-color:var(--red);color:var(--red)}
+  .btn.primary{background:var(--red);color:#000;border-color:var(--red);font-weight:700}
+  .btn.primary:hover{background:#ff5057;color:#000}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--surface)}
+  .seg button{appearance:none;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;color:var(--sec);background:transparent;border:0;padding:9px 14px}
+  .seg button.on{background:var(--surface2);color:var(--text)}
+  .seg button.on.clean{color:var(--good);box-shadow:inset 0 -2px 0 var(--good)}
+  .seg button.on.inf{color:var(--bad);box-shadow:inset 0 -2px 0 var(--bad)}
+
+  .note{font-size:12.5px;color:var(--muted)}
+  .callout{border-left:2px solid var(--red);background:var(--surface);border-radius:0 6px 6px 0;padding:12px 15px;margin:12px 0}
+  .callout.warn{border-color:var(--warn)} .callout.bad{border-color:var(--bad)} .callout.good{border-color:var(--good)}
+  .callout b{color:var(--text)}
+
+  ul.clean{margin:8px 0;padding-left:18px;color:var(--sec)} ul.clean li{margin:4px 0}
+  .mono{font-family:var(--mono)}
+  .kbd{font-family:var(--mono);font-size:12px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--sec)}
+
+  /* pipeline */
+  .flow{display:flex;gap:8px;align-items:stretch;overflow-x:auto;padding:4px 2px 10px}
+  .stage{flex:0 0 auto;width:150px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .2s,transform .2s,box-shadow .2s;position:relative}
+  .stage:hover{border-color:var(--blue)}
+  .stage.lit{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue),0 6px 18px rgba(57,135,229,.18)}
+  .stage.trace{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+  .stage .st{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .stage .sn{font-weight:700;margin:4px 0 2px;font-size:14px}
+  .stage .sd{font-size:11.5px;color:var(--sec)}
+  .arrow{flex:0 0 auto;align-self:center;color:var(--muted);font-size:20px}
+  .verdict{margin-top:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;gap:14px}
+  .verdict .big{font-size:20px;font-weight:800}
+  .vdot{width:14px;height:14px;border-radius:50%}
+
+  /* charts */
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--sec);margin:8px 0 2px}
+  .legend .it{display:flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .tip{position:fixed;z-index:60;pointer-events:none;background:#05080c;border:1px solid var(--line);
+    border-radius:8px;padding:6px 9px;font-size:12px;color:var(--text);opacity:0;transition:opacity .1s;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+  table.tbl{width:100%;border-collapse:collapse;font-size:13px}
+  table.tbl th,table.tbl td{border:1px solid var(--line);padding:7px 9px;text-align:center}
+  table.tbl th{background:var(--surface2);color:var(--sec);font-weight:600}
+  table.tbl td.feat{text-align:left;font-family:var(--mono);font-size:12px}
+  .cm{display:grid;grid-template-columns:auto auto auto;gap:4px;max-width:360px}
+  .cm .cell{border-radius:8px;padding:12px;text-align:center;font-weight:700;color:#fff}
+  .cm .hd{background:transparent;color:var(--muted);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:26px;padding-top:14px;border-top:1px solid var(--line)}
+  /* scanline blink */
+  #fx{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.5;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);animation:flick 5s steps(40) infinite}
+  @keyframes flick{0%,96%,100%{opacity:.45}97%{opacity:.18}98%{opacity:.62}99%{opacity:.3}}
+  /* custom cursor */
+  @media(pointer:fine){
+    *{cursor:none!important}
+    #cur{position:fixed;left:-60px;top:0;z-index:9999;pointer-events:none;width:16px;height:16px;border:1.5px solid var(--red);
+      transform:translate(-50%,-50%);transition:width .12s,height .12s,background .12s}
+    #cur.hot{width:30px;height:30px;background:rgba(255,43,51,.12)}
+    #cur.click{background:var(--red)}
+    #curdot{position:fixed;left:-60px;top:0;z-index:9999;pointer-events:none;width:3px;height:3px;background:var(--red);transform:translate(-50%,-50%)}
+  }
+</style>
+</head>
+<body>
+<div id="fx"></div>
+<div class="topbar">
+  <div class="wrap topbar-in">
+    <a class="tb-brand" href="start.html">htrojan<b>.</b>lab</a>
+    <nav class="tb-links">
+      <a href="start.html">← Menu</a>
+      <a class="hideSm" href="explainer.html">Learn</a>
+      <a class="hideSm" href="story.html">Story</a>
+      <a href="level2.html">Demo</a>
+    </nav>
+  </div>
+</div>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">University of Sharjah · Security Capstone II</div>
+    <h1>Machine-Learning Detection of Hardware Trojans in AES Designs</h1>
+    <p class="subtitle">Catching malicious logic at the <b>design stage</b> — before the bitstream ever reaches an FPGA.</p>
+    <div class="team">Amna Albalooshi · Meera Alsahlawi · Salama Alketbi &nbsp;·&nbsp; Supervisor: Dr. Khalid Javeed</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav id="nav">
+    <button class="tab active" data-t="overview"><span class="n">01</span>Overview</button>
+    <button class="tab" data-t="pipeline"><span class="n">02</span>Detection Pipeline</button>
+    <button class="tab" data-t="features"><span class="n">03</span>The 66 Features</button>
+    <button class="tab" data-t="results"><span class="n">04</span>Results</button>
+  </nav>
+
+<!-- ============ OVERVIEW ============ -->
+<section id="overview" class="active">
+  <h2>The threat, and what we built</h2>
+  <p class="lead">FPGA designs reuse third-party IP and outsourced steps, so a design can be altered with a <b>hardware Trojan</b> before it reaches the developer. Trojans stay silent until a rare trigger, so they slip past normal testing. We build a machine-learning system that screens AES designs and flags infected ones <b>at the design stage</b>.</p>
+
+  <div class="grid g4" style="margin:16px 0">
+    <div class="stat"><div class="v" style="color:var(--blue)">66</div><div class="l">features per design<br>(33 structural · 23 LUT · 10 switching)</div></div>
+    <div class="stat"><div class="v" style="color:var(--aqua)">3</div><div class="l">classifiers compared<br>RF · XGBoost · SVM</div></div>
+    <div class="stat"><div class="v" style="color:var(--warn)">2</div><div class="l">datasets<br>ready-made + paired twins</div></div>
+    <div class="stat"><div class="v" style="color:var(--good)">0</div><div class="l">FPGA boards needed<br>pure design-stage flow</div></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:2px">Anatomy of a hardware Trojan</h3>
+      <p><span class="tag bad">Trigger</span> a rare condition that activates it — here, one specific AES plaintext.</p>
+      <p><span class="tag bad">Payload</span> the malicious action once triggered.</p>
+      <p>Our paired designs use a Trojan modelled on Trust-Hub <span class="mono">AES-T1800</span> — a <b>battery-drain</b> Trojan. After the trigger, a 128-bit register rotates between <span class="mono">0xAAAA…</span> and <span class="mono">0x5555…</span> every clock, adding constant switching that burns power → denial of service.</p>
+      <a class="btn primary" href="level2.html" target="_blank" rel="noopener">▶ Launch the 3D hardware demo</a>
+      <p class="note" style="margin-top:8px">See the payload in action on a 3D Basys 3 board: program a clean vs infected bitstream and watch the battery drain.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:2px">Why it's hard to catch</h3>
+      <ul class="clean">
+        <li><b>Functional testing fails:</b> the trigger is rare, so a design passes its tests and stays infected.</li>
+        <li><b>The ciphertext is unchanged:</b> this Trojan drains power without altering AES output — output checks see nothing.</li>
+        <li><b>The logic is tiny:</b> its traces are spread across many small changes in cells, LUTs and switching — no single feature is a smoking gun.</li>
+      </ul>
+      <div class="callout"><b>Our idea:</b> let a model weigh all 66 small indicators at once, from three complementary “views” of the same design.</div>
+    </div>
+  </div>
+
+  <h3>Where a Trojan can enter the hardware lifecycle</h3>
+  <div class="grid g4">
+    <div class="card"><span class="tag">Stage 1</span><p style="margin:8px 0 0">Third-party <b>IP cores</b> integrated without full visibility.</p></div>
+    <div class="card"><span class="tag">Stage 2</span><p style="margin:8px 0 0">Untrusted <b>EDA tools</b> that could modify a design silently.</p></div>
+    <div class="card"><span class="tag">Stage 3</span><p style="margin:8px 0 0">The <b>supply chain</b> — many vendors and contractors.</p></div>
+    <div class="card"><span class="tag">Stage 4</span><p style="margin:8px 0 0"><b>Fabrication</b>, after the design leaves the designer.</p></div>
+  </div>
+</section>
+
+<!-- ============ PIPELINE ============ -->
+<section id="pipeline">
+  <h2>From Verilog to verdict</h2>
+  <p class="lead">Every design — clean or infected — flows through the same tools with the same settings, so differences in the features come from the <b>design</b>, not the processing. Pick a design and run the detector.</p>
+
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0">
+    <div class="seg" id="pipeSel">
+      <button class="on clean" data-d="clean">● Clean AES core</button>
+      <button data-d="inf">▲ Infected AES core</button>
+    </div>
+    <button class="btn primary" id="runPipe">Run detection ▸</button>
+    <span class="note" id="pipeStatus">Ready.</span>
+  </div>
+
+  <div class="flow" id="flow"></div>
+
+  <div class="verdict" id="verdict">
+    <span class="vdot" style="background:var(--muted)"></span>
+    <div><div class="big" id="vLabel">Awaiting run…</div><div class="note" id="vSub">Press “Run detection”.</div></div>
+  </div>
+
+  <div class="card" id="stageDetail" style="margin-top:14px">
+    <h3 style="margin-top:2px" id="sdTitle">Stage details</h3>
+    <p id="sdBody" class="note">Click any stage above to see what it does and what the Trojan changes there.</p>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features">
+  <h2>Three views, 66 numbers, one row per design</h2>
+  <p class="lead">A Python extractor turns each design into <b>66 features</b> from three files. Below: a clean AES core and its infected twin (same architecture — they differ only by the Trojan). Representative values.</p>
+
+  <div class="grid g3" style="margin:14px 0">
+    <div class="card"><span class="tag blue">Structural · 33</span><p style="margin:8px 0 0" class="note">Cells, gate types, flip-flops, fan-in / fan-out from the Yosys netlist.</p></div>
+    <div class="card"><span class="tag blue">LUT · 23</span><p style="margin:8px 0 0" class="note">How many LUTs of each size (2–6 inputs) and what their truth tables store.</p></div>
+    <div class="card"><span class="tag blue">Switching · 10</span><p style="margin:8px 0 0" class="note">Signal toggles recorded in the simulation (VCD) — activity, not measured power.</p></div>
+  </div>
+
+  <div class="legend">
+    <span class="it"><span class="sw" style="background:var(--good)"></span> Clean twin</span>
+    <span class="it"><span class="sw" style="background:var(--bad)"></span> Infected twin</span>
+  </div>
+  <div class="card chart"><div id="featChart"></div></div>
+  <div class="callout bad" style="margin-top:14px"><b>Both produce the identical ciphertext.</b> The Trojan is invisible to an output check — the gap shows up in <b>switching activity</b> (and, slightly, in structure and LUTs).</div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results">
+  <h2>Results — read with the bias in mind</h2>
+  <p class="lead">Recall is the priority metric (a missed Trojan is the costly error). Numbers below mirror the report's figures; they are preliminary while more pairs and Trojan types are added.</p>
+
+  <div class="seg" id="resSel" style="margin:12px 0">
+    <button class="on" data-r="1">Dataset 1</button>
+    <button data-r="2">Dataset 2 (paired)</button>
+    <button data-r="c">Combined</button>
+  </div>
+
+  <div class="grid g4" id="resStats" style="margin-bottom:14px"></div>
+
+  <div class="grid g2">
+    <div class="card chart">
+      <h3 style="margin-top:2px" id="barTitle">Random Forest metrics</h3>
+      <div class="legend"><span class="it"><span class="sw" style="background:var(--blue)"></span> 80/20 split</span><span class="it"><span class="sw" style="background:var(--orange)"></span> 5-fold CV</span></div>
+      <div id="resBars"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:2px">Confusion matrix (RF, 5-fold)</h3>
+      <div class="cm" id="cm"></div>
+      <p class="note" id="cmNote" style="margin-top:12px"></p>
+    </div>
+  </div>
+
+  <div class="callout" id="resNote" style="margin-top:14px"></div>
+
+  <div class="card" style="margin-top:14px">
+    <h3 style="margin-top:2px">Feature importance on Dataset 2 — switching dominates</h3>
+    <p class="note">On the honest paired data, <b>all 10 switching features</b> landed in the top 20. That fits the battery-drain payload: it keeps flipping a register, so the signal lives in activity, not structure.</p>
+    <div class="legend"><span class="it"><span class="sw" style="background:var(--aqua)"></span> Switching</span><span class="it"><span class="sw" style="background:var(--blue)"></span> Structural</span><span class="it"><span class="sw" style="background:var(--orange)"></span> LUT</span></div>
+    <div class="chart" id="impChart"></div>
+  </div>
+</section>
+
+<footer>
+  Interactive summary of the Capstone II report · figures are representative of the report's results · <a href="level2.html">3D hardware demo →</a>
+</footer>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const C={blue:'#3987e5',orange:'#d95926',aqua:'#199e70',good:'#0ca30c',bad:'#d03b3b',warn:'#fab219',
+  text:'#f0efec',sec:'#c3c2b7',muted:'#8a9bad',grid:'#2c333d',axis:'#3a4553'};
+const tip=$('#tip');
+function showTip(e,html){tip.innerHTML=html;tip.style.opacity=1;moveTip(e);}
+function moveTip(e){const x=(e.touches?e.touches[0].clientX:e.clientX),y=(e.touches?e.touches[0].clientY:e.clientY);
+  tip.style.left=Math.min(x+14,innerWidth-tip.offsetWidth-8)+'px';tip.style.top=(y-tip.offsetHeight-10)+'px';}
+function hideTip(){tip.style.opacity=0;}
+const SVGNS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const n=document.createElementNS(SVGNS,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);if(parent)parent.appendChild(n);return n;}
+
+/* ---------- tabs ---------- */
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;
+  $$('.tab').forEach(t=>t.classList.toggle('active',t===b));
+  $$('section').forEach(s=>s.classList.toggle('active',s.id===b.dataset.t));
+  window.scrollTo({top:0,behavior:'smooth'});
+});
+
+/* ================= PIPELINE ================= */
+const STAGES=[
+  {st:'RTL',sn:'Verilog source',sd:'The AES design (+ Trojan wrapper if infected).',
+   detail:'The design is written in Verilog at register-transfer level. An infected design adds a small Trojan module and a wrapper around the <b>unchanged</b> AES core, so the clean source itself is untouched.'},
+  {st:'Yosys',sn:'Structural netlist',sd:'Synthesise → JSON of cells & wires.',
+   detail:'Yosys turns the RTL into a flat netlist of logic cells and the nets connecting them, saved as JSON. The extractor reads <b>33 structural features</b> (cell counts, gate types, flip-flops, fan-in/fan-out). The Trojan adds trigger-comparison logic and payload registers here.',trace:true},
+  {st:'ABC',sn:'LUT mapping',sd:'Map logic to 6-input LUTs → JSON.',
+   detail:'Yosys + ABC map the logic onto look-up tables of up to 6 inputs. This yields <b>23 LUT features</b> — how many LUTs of each size and what their truth tables store. Extra Trojan logic shifts these counts.',trace:true},
+  {st:'Icarus',sn:'Switching (VCD)',sd:'Simulate → record every signal toggle.',
+   detail:'Icarus Verilog simulates the design and records every signal transition in a VCD file, giving <b>10 switching features</b>. The battery-drain payload keeps a register flipping, so an infected design shows extra toggles a clean one never has.',trace:true},
+  {st:'Extractor',sn:'66-feature vector',sd:'Merge the three files → one row.',
+   detail:'A Python extractor merges the three files into one 66-value row (33 + 23 + 10), labelled 0 (clean) or 1 (infected). Names and sources are never fed to the model.'},
+  {st:'Model',sn:'RF / XGBoost / SVM',sd:'Classify the design.',
+   detail:'Random Forest, XGBoost and SVM are trained on the rows and tested on designs they never saw (80/20 split and grouped 5-fold CV). Recall is the main metric.'},
+];
+const flow=$('#flow');
+STAGES.forEach((s,i)=>{
+  if(i)flow.appendChild(Object.assign(document.createElement('div'),{className:'arrow',textContent:'→'}));
+  const d=document.createElement('div');d.className='stage';d.dataset.i=i;
+  d.innerHTML=`<div class="st">${s.st}</div><div class="sn">${s.sn}</div><div class="sd">${s.sd}</div>`;
+  d.addEventListener('click',()=>selectStage(i));
+  flow.appendChild(d);
+});
+function selectStage(i){const s=STAGES[i];$('#sdTitle').innerHTML=`${s.sn} <span class="note">(${s.st})</span>`;$('#sdBody').innerHTML=s.detail;}
+selectStage(0);
+let pipeDesign='clean';
+$('#pipeSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  pipeDesign=b.dataset.d;$$('#pipeSel button').forEach(x=>{x.classList.toggle('on',x===b);x.classList.toggle('clean',x===b&&pipeDesign==='clean');x.classList.toggle('inf',x===b&&pipeDesign==='inf');});
+  resetPipe();
+});
+function resetPipe(){$$('#flow .stage').forEach(s=>s.classList.remove('lit','trace'));
+  const v=$('#verdict');v.querySelector('.vdot').style.background=C.muted;$('#vLabel').textContent='Awaiting run…';$('#vSub').textContent='Press “Run detection”.';$('#pipeStatus').textContent='Ready.';}
+$('#runPipe').addEventListener('click',()=>{
+  resetPipe();const stages=$$('#flow .stage');let i=0;$('#pipeStatus').textContent='Running…';
+  const iv=setInterval(()=>{
+    if(i>0)stages[i-1].classList.remove('lit');
+    if(i<stages.length){stages[i].classList.add('lit');
+      if(pipeDesign==='inf'&&STAGES[i].trace)stages[i].classList.add('trace');i++;
+    }else{clearInterval(iv);finishPipe();}
+  },520);
+});
+function finishPipe(){const v=$('#verdict'),inf=pipeDesign==='inf';
+  v.querySelector('.vdot').style.background=inf?C.bad:C.good;
+  $('#vLabel').innerHTML=inf?'Prediction: <span style="color:var(--bad)">INFECTED</span>':'Prediction: <span style="color:var(--good)">CLEAN</span>';
+  $('#vSub').textContent=inf?'Flagged by extra switching + structural/LUT traces. (Illustrative confidence 0.91)':'No Trojan traces found. (Illustrative confidence 0.88)';
+  $('#pipeStatus').textContent='Done.';}
+
+/* ================= FEATURES ================= */
+const FEAT=[
+  {g:'Structural',n:'total_cells',c:1840,i:1970},
+  {g:'Structural',n:'dff_count',c:530,i:664},
+  {g:'Structural',n:'max_fan_in',c:38,i:41},
+  {g:'LUT',n:'total_luts',c:612,i:671},
+  {g:'LUT',n:'lut6_count',c:143,i:167},
+  {g:'LUT',n:'truthtable_bias',c:0.34,i:0.37,scale:1000},
+  {g:'Switching',n:'total_bit_transitions',c:12450,i:38760},
+  {g:'Switching',n:'avg_transitions/signal',c:21,i:63},
+  {g:'Switching',n:'active_signal_ratio',c:0.41,i:0.78,scale:1000},
+];
+function renderFeat(){
+  const host=$('#featChart');host.innerHTML='';
+  const W=900,rowH=40,padL=200,padR=60,padT=10,H=padT+FEAT.length*rowH+10;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'},host);
+  FEAT.forEach((f,idx)=>{
+    const y=padT+idx*rowH;
+    const sc=f.scale||1, cv=f.c, iv=f.i, mx=Math.max(cv,iv)*1.15;
+    const bw=W-padL-padR;
+    el('text',{x:padL-10,y:y+rowH/2,fill:C.sec,'font-size':12,'text-anchor':'end','font-family':'ui-monospace,Consolas,monospace','dominant-baseline':'middle'},svg).textContent=f.n;
+    el('text',{x:8,y:y+rowH/2,fill:C.muted,'font-size':10,'dominant-baseline':'middle'},svg).textContent=f.g;
+    const mk=(val,color,yo,label)=>{
+      const w=Math.max(3,bw*(val/mx));
+      const r=el('rect',{x:padL,y:y+yo,width:w,height:12,rx:4,fill:color},svg);
+      r.style.cursor='pointer';
+      const disp=(f.scale?(val/1).toFixed(2):val.toLocaleString());
+      r.addEventListener('mousemove',e=>showTip(e,`<b>${f.n}</b><br>${label}: ${disp}`));
+      r.addEventListener('mouseleave',hideTip);
+    };
+    mk(cv,C.good,6,'Clean');mk(iv,C.bad,22,'Infected');
+  });
+}
+
+/* ================= RESULTS ================= */
+const RES={
+  '1':{title:'Dataset 1 · ready-made (source-biased)',
+    stats:[['97.5%','RF accuracy (5-fold)',C.blue],['100%','RF recall (5-fold)',C.good],['96%','RF precision',C.aqua],['88.9%','all models (80/20, top-20)',C.warn]],
+    bars:{labels:['Accuracy','Precision','Recall','F1'],a:[88.9,null,null,null],b:[97.5,96,100,97.8]},
+    cm:{tp:24,fn:0,fp:1,tn:15},cmNote:'100% recall — every infected design caught. But this reflects source separation, not Trojan detection.',
+    note:{cls:'warn',html:'<b>Looks excellent, but biased.</b> Clean and infected designs come from different sources, so high scores partly reflect source, not the Trojan. Treated as exploratory in the report.'}},
+  '2':{title:'Dataset 2 · paired twins (honest)',
+    stats:[['45%','RF accuracy (grouped 5-fold)',C.bad],['41.3%','RF F1 (grouped 5-fold)',C.bad],['50%','RF all metrics (80/20)',C.warn],['≈chance','honest difficulty',C.muted]],
+    bars:{labels:['Accuracy','Precision','Recall','F1'],a:[50,50,50,50],b:[45,46,45,41.3]},
+    cm:{tp:9,fn:11,fp:11,tn:9},cmNote:'Near the diagonal — the model cannot yet tell a twin pair apart. An honest, hard test.',
+    note:{cls:'bad',html:'<b>Close to random guessing</b> — and that is the point. With source bias removed, this one Trojan type is genuinely hard to detect from these features so far. The next step is more pairs and Trojan types.'}},
+  'c':{title:'Combined · both datasets',
+    stats:[['90.9%','RF accuracy (80/20)',C.blue],['85.7%','RF F1 (5-fold)',C.aqua],['84.7%','RF accuracy (5-fold)',C.blue],['65.5%','if pairs are split',C.bad]],
+    bars:{labels:['Accuracy','Precision','Recall','F1'],a:[90.9,91,92,92.3],b:[84.7,85,86,85.7]},
+    cm:{tp:28,fn:5,fp:6,tn:31},cmNote:'Between the two extremes — partly carried by the separable Dataset 1 designs.',
+    note:{cls:'',html:'<b>In between.</b> Keeping each pair together is essential: when pairs are allowed to split across train/test, accuracy collapses to 65.5% because the model sees near-identical rows with opposite labels.'}}
+};
+let curRes='1';
+function renderRes(){
+  const r=RES[curRes];
+  $('#resStats').innerHTML=r.stats.map(s=>`<div class="stat"><div class="v" style="color:${s[2]}">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('');
+  $('#barTitle').textContent='Random Forest metrics — '+r.title;
+  renderBars(r.bars);
+  renderCM(r.cm,r.cmNote);
+  const n=$('#resNote');n.className='callout '+(r.note.cls||'');n.innerHTML=r.note.html;
+}
+function renderBars(d){
+  const host=$('#resBars');host.innerHTML='';
+  const W=520,H=260,padL=38,padB=30,padT=10,gx=(W-padL-10)/d.labels.length;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`},host);
+  [0,25,50,75,100].forEach(v=>{const y=padT+(H-padT-padB)*(1-v/100);
+    el('line',{x1:padL,y1:y,x2:W-10,y2:y,stroke:C.grid,'stroke-width':1},svg);
+    el('text',{x:padL-6,y:y+3,fill:C.muted,'font-size':10,'text-anchor':'end'},svg).textContent=v;});
+  d.labels.forEach((lab,i)=>{
+    const x0=padL+i*gx+gx*0.14, bw=gx*0.72, half=bw/2-2;
+    const draw=(val,xo,color,series)=>{if(val==null)return;const h=(H-padT-padB)*(val/100);const y=padT+(H-padT-padB)-h;
+      const rr=el('rect',{x:x0+xo,y,width:half,height:Math.max(2,h),rx:4,fill:color},svg);rr.style.cursor='pointer';
+      rr.addEventListener('mousemove',e=>showTip(e,`<b>${lab}</b><br>${series}: ${val}%`));rr.addEventListener('mouseleave',hideTip);};
+    draw(d.a[i],0,C.blue,'80/20');draw(d.b[i],half+4,C.orange,'5-fold');
+    el('text',{x:x0+bw/2,y:H-padB+16,fill:C.sec,'font-size':11,'text-anchor':'middle'},svg).textContent=lab;
+  });
+}
+function renderCM(cm,note){
+  const host=$('#cm');const mx=Math.max(cm.tp,cm.fn,cm.fp,cm.tn);
+  const col=(v,good)=>{const t=v/mx;return good?`rgba(12,163,12,${0.25+0.65*t})`:`rgba(208,59,59,${0.25+0.65*t})`;};
+  host.innerHTML=`
+    <div class="hd"></div><div class="hd">Pred. Clean</div><div class="hd">Pred. Infected</div>
+    <div class="hd">Actual Clean</div><div class="cell" style="background:${col(cm.tn,1)}">${cm.tn}<div style="font-size:10px;font-weight:400">TN</div></div><div class="cell" style="background:${col(cm.fp,0)}">${cm.fp}<div style="font-size:10px;font-weight:400">FP</div></div>
+    <div class="hd">Actual Infected</div><div class="cell" style="background:${col(cm.fn,0)}">${cm.fn}<div style="font-size:10px;font-weight:400">FN</div></div><div class="cell" style="background:${col(cm.tp,1)}">${cm.tp}<div style="font-size:10px;font-weight:400">TP</div></div>`;
+  $('#cmNote').textContent=note;
+}
+
+/* feature importance (dataset 2) */
+const IMP=[
+  ['total_bit_transitions',0.142,'sw'],['active_signal_ratio',0.121,'sw'],['avg_transitions_per_signal',0.108,'sw'],
+  ['transition_std',0.094,'sw'],['max_transitions',0.081,'sw'],['low_activity_ratio',0.073,'sw'],
+  ['zero_activity_ratio',0.066,'sw'],['transitions_per_bit',0.058,'sw'],['avg_active_transitions',0.051,'sw'],
+  ['total_signal_bits',0.044,'sw'],['dff_count',0.032,'st'],['total_luts',0.021,'lut']
+];
+function renderImp(){
+  const host=$('#impChart');host.innerHTML='';
+  const W=900,rowH=26,padL=230,padR=60,padT=6,H=padT+IMP.length*rowH+6;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`},host);
+  const mx=Math.max(...IMP.map(d=>d[1]))*1.1,bw=W-padL-padR;
+  const colr={sw:C.aqua,st:C.blue,lut:C.orange};
+  IMP.forEach((d,i)=>{const y=padT+i*rowH;
+    el('text',{x:padL-10,y:y+rowH/2,fill:C.sec,'font-size':11.5,'text-anchor':'end','font-family':'ui-monospace,Consolas,monospace','dominant-baseline':'middle'},svg).textContent=d[0];
+    const w=Math.max(3,bw*(d[1]/mx));
+    const r=el('rect',{x:padL,y:y+5,width:w,height:rowH-12,rx:4,fill:colr[d[2]]},svg);r.style.cursor='pointer';
+    r.addEventListener('mousemove',e=>showTip(e,`<b>${d[0]}</b><br>importance: ${d[1].toFixed(3)}`));r.addEventListener('mouseleave',hideTip);
+    el('text',{x:padL+w+6,y:y+rowH/2,fill:C.muted,'font-size':10.5,'dominant-baseline':'middle'},svg).textContent=d[1].toFixed(3);
+  });
+}
+
+/* ---------- wire selectors ---------- */
+$('#resSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;curRes=b.dataset.r;$$('#resSel button').forEach(x=>x.classList.toggle('on',x===b));renderRes();});
+window.addEventListener('scroll',hideTip,{passive:true});
+
+/* ---------- initial render ---------- */
+renderFeat();renderRes();renderImp();
+</script>
+<script>
+(function(){ if(!matchMedia('(pointer:fine)').matches) return;
+  var cur=document.createElement('div');cur.id='cur';document.body.appendChild(cur);
+  var dot=document.createElement('div');dot.id='curdot';document.body.appendChild(dot);
+  var x=innerWidth/2,y=innerHeight/2,cx=x,cy=y;
+  addEventListener('pointermove',function(e){x=e.clientX;y=e.clientY;dot.style.left=x+'px';dot.style.top=y+'px';
+    var h=e.target.closest&&e.target.closest('a,button,[onclick],.tab,.seg button,.stage,input,select');
+    cur.classList.toggle('hot',!!h);},{passive:true});
+  addEventListener('pointerdown',function(){cur.classList.add('click');});
+  addEventListener('pointerup',function(){cur.classList.remove('click');});
+  (function raf(){cx+=(x-cx)*0.3;cy+=(y-cy)*0.3;cur.style.left=cx+'px';cur.style.top=cy+'px';requestAnimationFrame(raf);})();
+})();
+</script>
+</body>
+</html>
